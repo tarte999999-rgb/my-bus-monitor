@@ -5,29 +5,31 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# --- ターゲット設定（武田さんの調べてくれたIDに合わせました） ---
+# --- ターゲット設定：コースを指定せず「系統全体」を狙う設定に変更 ---
 TARGET_BUSES = [
     {
         'name': '120番',
-        'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812',
-        'course': '632acb21-8c13-4b69-a877-281a4f41002e'
+        'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812'
     },
     {
         'name': '28番',
-        'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
-        'course': 'eaaad386-69ff-4723-880a-a112e1de20c0'
+        'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8'
     }
 ]
 
 def fetch_bus_locations():
     url = "https://www.busnavi-okinawa.com/top/Location/BusLocation"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'X-Requested-With': 'XMLHttpRequest'
+    }
     all_buses = []
     
     for target in TARGET_BUSES:
+        # courseGroupSid を 'AllStations' にすることで、全方向を狙います
         params = {
             'keitouSid': target['keitou'],
-            'courseGroupSid': target['course'],
+            'courseGroupSid': 'AllStations', 
             'courseSid': 'AllStations',
             '_': int(time.time() * 1000)
         }
@@ -40,7 +42,7 @@ def fetch_bus_locations():
                     pos = item.get('Position', {})
                     lat_raw, lon_raw = pos.get('Latitude'), pos.get('Longitude')
                     if lat_raw and lon_raw:
-                        # 測地系補正（これが無いと海の上に表示されてしまいます）
+                        # 測地系補正
                         lat = lat_raw - 0.00010695 * lat_raw + 0.000017464 * lon_raw + 0.0046017
                         lon = lon_raw - 0.000046038 * lat_raw - 0.000083043 * lon_raw + 0.010040
                         all_buses.append({
@@ -57,39 +59,52 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>武田家 バス監視システム 復活版</title>
+        <title>武田家 バス監視システム 最終決戦版</title>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
         <style>
             body { margin: 0; padding: 0; }
-            #map { width: 100%; height: 90vh; }
-            #status { height: 10vh; background: #333; color: #fff; padding: 10px; font-family: sans-serif; font-size: 14px; }
+            #map { width: 100%; height: 85vh; }
+            #status { height: 15vh; background: #222; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; }
         </style>
     </head>
     <body>
         <div id="map"></div>
-        <div id="status"><span id="info">バスを探しています...</span></div>
+        <div id="status">
+            📡 120番・28番 監視中 (東京リージョンから接続中...)<br>
+            <span id="info" style="color:#00ff00; font-size: 1.2em;">データ取得中...</span>
+        </div>
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script>
-            var map = L.map('map').setView([26.235399, 127.686561], 13);
+            var map = L.map('map').setView([26.235399, 127.686561], 12);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             L.circleMarker([26.235399, 127.686561], {radius: 8, fillColor: "#007bff", color: "#fff", weight: 3, fillOpacity: 1}).addTo(map).bindPopup("天久バス停");
 
+            var markers = {};
             async function update() {
                 try {
                     const res = await fetch('/api/bus');
                     const data = await res.json();
-                    document.querySelectorAll('.leaflet-marker-icon').forEach(m => m.remove()); // 古いバスを消す
-                    
+                    const currentPlates = new Set();
                     data.forEach(bus => {
-                        var color = (bus.line === '120番') ? '#ff4444' : '#00c851';
-                        L.circleMarker([bus.lat, bus.lon], {radius: 10, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.9}).addTo(map).bindPopup(bus.line);
+                        currentPlates.add(bus.plate);
+                        var color = bus.line.includes('120') ? '#ff4444' : '#00c851';
+                        if (markers[bus.plate]) {
+                            markers[bus.plate].setLatLng([bus.lat, bus.lon]);
+                        } else {
+                            markers[bus.plate] = L.circleMarker([bus.lat, bus.lon], {
+                                radius: 10, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.9
+                            }).addTo(map).bindPopup(bus.line + " (" + bus.plate + ")");
+                        }
+                    });
+                    Object.keys(markers).forEach(plate => {
+                        if (!currentPlates.has(plate)) { map.removeLayer(markers[plate]); delete markers[plate]; }
                     });
                     document.getElementById('info').textContent = "捕捉: " + data.length + "台 (" + new Date().toLocaleTimeString() + ")";
-                } catch(e) {}
+                } catch(e) { }
             }
-            setInterval(update, 60000); // 1分おきにパッと更新
+            setInterval(update, 20000);
             update();
         </script>
     </body>
@@ -103,4 +118,3 @@ def api_bus():
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-    
