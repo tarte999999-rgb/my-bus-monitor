@@ -5,8 +5,8 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# --- ターゲット設定（ここにIDを並べるだけでどんどん増やせます） ---
-TARGET_ bUSES = [
+# --- ターゲット設定 ---
+TARGET_BUSES = [
     {
         'name': '120番',
         'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812',
@@ -17,7 +17,6 @@ TARGET_ bUSES = [
         'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
         'course': 'eaaad386-69ff-4723-880a-a112e1de20c0'
     }
-    # ※もし反対方向のIDがわかったら、ここに同じように追加すればOKです！
 ]
 
 def fetch_bus_locations():
@@ -26,7 +25,7 @@ def fetch_bus_locations():
     all_buses = []
     seen_plates = set()
     
-    for target in TARGET_ bUSES:
+    for target in TARGET_BUSES:
         params = {
             'datetime': f"{int((time.time() % 1) * 100):02}",
             'keitouSid': target['keitou'],
@@ -59,36 +58,35 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>武田家 バス監視システム ヌルヌル版</title>
+        <title>武田家 バス監視システム プレミアム</title>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
         <style>
             body { margin: 0; padding: 0; }
             #map { width: 100%; height: 85vh; }
-            #status { height: 15vh; background: #1a1a1a; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; font-size: 13px; }
-            /* ヌルヌル動かすための設定 */
-            .leaflet-marker-icon, .leaflet-marker-shadow { transition: all 1.0s linear; }
+            #status { height: 15vh; background: #222; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; }
+            /* アイコンを滑らかに動かすためのCSSアニメーション */
+            .leaflet-marker-icon { transition: transform 1s linear !important; }
         </style>
     </head>
     <body>
         <div id="map"></div>
-        <div id="status">
-            <div id="info">バスを探しています...</div>
-        </div>
+        <div id="status">📡 120番・28番 監視中...<br><span id="info">更新を待っています...</span></div>
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script>
             var map = L.map('map').setView([26.235399, 127.686561], 14);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            
+            // 天久バス停
             L.circleMarker([26.235399, 127.686561], {radius: 8, fillColor: "#007bff", color: "#fff", weight: 3, fillOpacity: 1}).addTo(map).bindPopup("天久バス停");
 
-            var markers = {}; // ナンバープレートをキーにしてマーカーを管理
+            var markers = {};
 
             async function update() {
                 try {
                     const res = await fetch('/api/bus');
                     const data = await res.json();
-                    
                     const currentPlates = new Set();
 
                     data.forEach(bus => {
@@ -96,33 +94,31 @@ def index():
                         var color = (bus.line === '120番') ? '#ff4444' : '#00c851';
                         
                         if (markers[bus.plate]) {
-                            // すでにあるマーカーの位置を更新（ここでヌルヌル動く！）
+                            // 既存のマーカーの位置を更新
                             markers[bus.plate].setLatLng([bus.lat, bus.lon]);
                         } else {
-                            // 新しいバスが現れた場合
+                            // 新規マーカー作成
                             var m = L.circleMarker([bus.lat, bus.lon], {
                                 radius: 10, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.9
-                            }).addTo(map).bindPopup(bus.line + " (" + bus.plate + ")");
+                            }).addTo(map).bindPopup("<b>" + bus.line + "</b><br>" + bus.plate);
                             markers[bus.plate] = m;
                         }
                     });
 
-                    // 画面から消えたバスのマーカーを削除
-                    for (let plate in markers) {
+                    // 消えたバスを削除
+                    Object.keys(markers).forEach(plate => {
                         if (!currentPlates.has(plate)) {
                             map.removeLayer(markers[plate]);
                             delete markers[plate];
                         }
-                    }
-                    
-                    document.getElementById('info').innerHTML = 
-                        "🔴120番 🟢28番 <br>" + 
-                        new Date().toLocaleTimeString() + " 更新 / 捕捉: " + data.length + "台";
-                } catch(e) { document.getElementById('info').innerHTML = "通信エラー"; }
+                    });
+
+                    document.getElementById('info').textContent = "最終更新: " + new Date().toLocaleTimeString() + " (捕捉中: " + data.length + "台)";
+                } catch(e) { console.error(e); }
             }
 
-            // 更新間隔を少し短く（30秒）にすると、よりヌルヌル感が出ます
-            setInterval(update, 30000);
+            // 15秒おきにデータをチェック（より頻繁に更新）
+            setInterval(update, 15000);
             update();
         </script>
     </body>
