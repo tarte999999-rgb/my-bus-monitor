@@ -5,12 +5,18 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# --- ターゲット設定（28番は複数のコースグループを試行します） ---
+# --- 武田さんが調べてくれた最新のIDを反映 ---
 TARGET_BUSES = [
-    {'name': '120番', 'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812', 'course': '632acb21-8c13-4b69-a877-281a4f41002e'},
-    # 28番の可能性のあるIDを複数並べて、どれかから取得できるようにします
-    {'name': '28番', 'keitou': '87c264cc-92e6-427c-9b65-693355325997', 'course': '13180482-97f2-4467-b50a-471015694a97'},
-    {'name': '28番', 'keitou': '87c264cc-92e6-427c-9b65-693355325997', 'course': 'AllStations'}
+    {
+        'name': '120番',
+        'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812',
+        'course': '632acb21-8c13-4b69-a877-281a4f41002e'
+    },
+    {
+        'name': '28番',
+        'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', # 武田さん提供の最新ID
+        'course': 'eaaad386-69ff-4723-880a-a112e1de20c0'  # 武田さん提供の最新ID
+    }
 ]
 
 def fetch_bus_locations():
@@ -22,7 +28,7 @@ def fetch_bus_locations():
     }
     
     all_buses = []
-    seen_plates = set() # 重複除外用
+    seen_plates = set()
     
     for target in TARGET_BUSES:
         params = {
@@ -42,14 +48,13 @@ def fetch_bus_locations():
                 
                 for item in locations:
                     plate = item.get('Bus', {}).get('NumberPlate', '不明')
-                    # すでに取得済みの車両（重複）は飛ばす
                     if plate in seen_plates: continue
                     
                     pos = item.get('Position', {})
                     lat_raw, lon_raw = pos.get('Latitude'), pos.get('Longitude')
                     
                     if lat_raw and lon_raw:
-                        # 測地系補正
+                        # 測地系補正（沖縄のバスナビ特有のズレを修正）
                         lat = lat_raw - 0.00010695 * lat_raw + 0.000017464 * lon_raw + 0.0046017
                         lon = lon_raw - 0.000046038 * lat_raw - 0.000083043 * lon_raw + 0.010040
                         
@@ -65,27 +70,34 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>武田家 バス監視システム v2</title>
+        <title>武田家 バス監視システム v3</title>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
         <style>
             body { margin: 0; padding: 0; }
             #map { width: 100%; height: 80vh; }
-            #status { height: 20vh; background: #222; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; }
+            #status { height: 20vh; background: #1a1a1a; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; }
+            .legend-item { display: inline-block; margin-right: 15px; font-weight: bold; }
             .dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         </style>
     </head>
     <body>
         <div id="map"></div>
         <div id="status">
-            <div style="margin-bottom:5px;">🔴 120番 / 🟢 28番</div>
+            <div style="margin-bottom:10px;">
+                <span class="legend-item"><span class="dot" style="background:#ff4444;"></span>120番</span>
+                <span class="legend-item"><span class="dot" style="background:#00c851;"></span>28番</span>
+                <span class="legend-item"><span class="dot" style="background:#007bff;"></span>天久バス停</span>
+            </div>
             <div id="info">更新中...</div>
         </div>
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script>
             var map = L.map('map').setView([26.235399, 127.686561], 12);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            
+            // 天久バス停
             L.circleMarker([26.235399, 127.686561], {radius: 8, fillColor: "#007bff", color: "#fff", weight: 3, fillOpacity: 1}).addTo(map).bindPopup("天久バス停");
 
             var markers = [];
@@ -100,7 +112,7 @@ def index():
                         var m = L.circleMarker([bus.lat, bus.lon], {radius: 10, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.9}).addTo(map).bindPopup(bus.line + " (" + bus.plate + ")");
                         markers.push(m);
                     });
-                    document.getElementById('info').innerHTML = new Date().toLocaleTimeString() + " 更新 / 捕捉: " + data.length + "台";
+                    document.getElementById('info').innerHTML = new Date().toLocaleTimeString() + " 更新 / 稼働中: " + data.length + "台";
                 } catch(e) { document.getElementById('info').innerHTML = "通信エラー"; }
             }
             setInterval(update, 60000);
