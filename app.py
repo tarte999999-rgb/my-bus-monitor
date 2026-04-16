@@ -5,7 +5,7 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# --- ターゲット設定 ---
+# --- ターゲット設定（空白を修正し、28番の上りも追加しました） ---
 TARGET_BUSES = [
     {
         'name': '120番',
@@ -13,9 +13,14 @@ TARGET_BUSES = [
         'course': '632acb21-8c13-4b69-a877-281a4f41002e'
     },
     {
-        'name': '28番',
+        'name': '28番(下り)', # 読谷方面
         'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
         'course': 'eaaad386-69ff-4723-880a-a112e1de20c0'
+    },
+    {
+        'name': '28番(上り)', # 那覇方面
+        'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
+        'course': '60689b70-7603-4c57-873b-554477c77f0a'
     }
 ]
 
@@ -44,7 +49,6 @@ def fetch_bus_locations():
                     pos = item.get('Position', {})
                     lat_raw, lon_raw = pos.get('Latitude'), pos.get('Longitude')
                     if lat_raw and lon_raw:
-                        # 測地系補正
                         lat = lat_raw - 0.00010695 * lat_raw + 0.000017464 * lon_raw + 0.0046017
                         lon = lon_raw - 0.000046038 * lat_raw - 0.000083043 * lon_raw + 0.010040
                         all_buses.append({'lat': lat, 'lon': lon, 'plate': plate, 'line': target['name']})
@@ -66,19 +70,16 @@ def index():
             body { margin: 0; padding: 0; }
             #map { width: 100%; height: 85vh; }
             #status { height: 15vh; background: #222; color: #fff; padding: 10px; font-family: sans-serif; box-sizing: border-box; }
-            /* アイコンを滑らかに動かすためのCSSアニメーション */
-            .leaflet-marker-icon { transition: transform 1s linear !important; }
+            .leaflet-marker-icon { transition: transform 2s linear !important; }
         </style>
     </head>
     <body>
         <div id="map"></div>
-        <div id="status">📡 120番・28番 監視中...<br><span id="info">更新を待っています...</span></div>
+        <div id="status">📡 120番・28番(上下線) 監視中...<br><span id="info">バスを探しています...</span></div>
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script>
-            var map = L.map('map').setView([26.235399, 127.686561], 14);
+            var map = L.map('map').setView([26.235399, 127.686561], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            
-            // 天久バス停
             L.circleMarker([26.235399, 127.686561], {radius: 8, fillColor: "#007bff", color: "#fff", weight: 3, fillOpacity: 1}).addTo(map).bindPopup("天久バス停");
 
             var markers = {};
@@ -92,12 +93,9 @@ def index():
                     data.forEach(bus => {
                         currentPlates.add(bus.plate);
                         var color = (bus.line === '120番') ? '#ff4444' : '#00c851';
-                        
                         if (markers[bus.plate]) {
-                            // 既存のマーカーの位置を更新
                             markers[bus.plate].setLatLng([bus.lat, bus.lon]);
                         } else {
-                            // 新規マーカー作成
                             var m = L.circleMarker([bus.lat, bus.lon], {
                                 radius: 10, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.9
                             }).addTo(map).bindPopup("<b>" + bus.line + "</b><br>" + bus.plate);
@@ -105,19 +103,15 @@ def index():
                         }
                     });
 
-                    // 消えたバスを削除
                     Object.keys(markers).forEach(plate => {
                         if (!currentPlates.has(plate)) {
                             map.removeLayer(markers[plate]);
                             delete markers[plate];
                         }
                     });
-
-                    document.getElementById('info').textContent = "最終更新: " + new Date().toLocaleTimeString() + " (捕捉中: " + data.length + "台)";
+                    document.getElementById('info').textContent = "最終更新: " + new Date().toLocaleTimeString() + " (捕捉: " + data.length + "台)";
                 } catch(e) { console.error(e); }
             }
-
-            // 15秒おきにデータをチェック（より頻繁に更新）
             setInterval(update, 15000);
             update();
         </script>
