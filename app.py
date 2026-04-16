@@ -5,22 +5,17 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# --- ターゲット設定（空白を修正し、28番の上りも追加しました） ---
+# --- ターゲット設定（IDをより広範囲なものに修正しました） ---
 TARGET_BUSES = [
     {
         'name': '120番',
         'keitou': 'c2d5a846-d5ab-41a8-9da6-9ca28e8fa812',
-        'course': '632acb21-8c13-4b69-a877-281a4f41002e'
+        'course': 'AllStations' # 120番の全方向を狙う
     },
     {
-        'name': '28番(下り)', # 読谷方面
+        'name': '28番',
         'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
-        'course': 'eaaad386-69ff-4723-880a-a112e1de20c0'
-    },
-    {
-        'name': '28番(上り)', # 那覇方面
-        'keitou': 'c3b057fe-ccf6-41bf-887a-e4150c77c8c8', 
-        'course': '60689b70-7603-4c57-873b-554477c77f0a'
+        'course': 'AllStations' # 武田さんが見つけた28番のIDで全方向を狙う
     }
 ]
 
@@ -39,7 +34,8 @@ def fetch_bus_locations():
             '_': int(time.time() * 1000)
         }
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=5)
+            # タイムアウトを少し伸ばして確実に取得
+            response = requests.get(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 locations = data if isinstance(data, list) else data.get('BusLocationList', [])
@@ -49,6 +45,7 @@ def fetch_bus_locations():
                     pos = item.get('Position', {})
                     lat_raw, lon_raw = pos.get('Latitude'), pos.get('Longitude')
                     if lat_raw and lon_raw:
+                        # 測地系補正
                         lat = lat_raw - 0.00010695 * lat_raw + 0.000017464 * lon_raw + 0.0046017
                         lon = lon_raw - 0.000046038 * lat_raw - 0.000083043 * lon_raw + 0.010040
                         all_buses.append({'lat': lat, 'lon': lon, 'plate': plate, 'line': target['name']})
@@ -75,7 +72,7 @@ def index():
     </head>
     <body>
         <div id="map"></div>
-        <div id="status">📡 120番・28番(上下線) 監視中...<br><span id="info">バスを探しています...</span></div>
+        <div id="status">📡 120番・28番 監視中...<br><span id="info">バスを探しています...</span></div>
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script>
             var map = L.map('map').setView([26.235399, 127.686561], 13);
@@ -92,7 +89,7 @@ def index():
 
                     data.forEach(bus => {
                         currentPlates.add(bus.plate);
-                        var color = (bus.line === '120番') ? '#ff4444' : '#00c851';
+                        var color = (bus.line.includes('120')) ? '#ff4444' : '#00c851';
                         if (markers[bus.plate]) {
                             markers[bus.plate].setLatLng([bus.lat, bus.lon]);
                         } else {
@@ -110,9 +107,9 @@ def index():
                         }
                     });
                     document.getElementById('info').textContent = "最終更新: " + new Date().toLocaleTimeString() + " (捕捉: " + data.length + "台)";
-                } catch(e) { console.error(e); }
+                } catch(e) { document.getElementById('info').textContent = "通信エラー、再試行中..."; }
             }
-            setInterval(update, 15000);
+            setInterval(update, 20000); // 20秒おきに更新
             update();
         </script>
     </body>
